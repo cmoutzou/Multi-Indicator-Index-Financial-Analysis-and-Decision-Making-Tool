@@ -1,0 +1,284 @@
+import yfinance as yf
+import pandas as pd
+import pandas_ta as ta
+import plotly.graph_objects as go
+import plotly.io as pio
+import warnings
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+# Suppress yfinance progress output
+import requests
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+
+# List of supporting indices
+supporting_indices = ['^NDX', '^DJI', '^RUT', '^FTSE', '^GDAXI', '^N225', '^HSI', '^STOXX50E']
+
+
+### Supporting Indices ###
+'''
+1. Nasdaq 100 (^NDX):
+Represents the 100 largest non-financial companies listed on the Nasdaq stock exchange. It's tech-heavy and gives insights into technology and growth stocks.
+2. Dow Jones Industrial Average (^DJI):
+A major U.S. stock market index that includes 30 blue-chip companies across different industries. It's useful for gauging overall market sentiment.
+3. Russell 2000 (^RUT):
+Tracks small-cap stocks in the U.S. market. It provides insights into the performance of smaller companies that might be overlooked by large indices like the S&P 500.
+4. FTSE 100 (^FTSE):
+Tracks the 100 largest companies listed on the London Stock Exchange. It's a good indicator of the UK economy.
+5. DAX (^GDAXI):
+Represents 30 major companies on the Frankfurt Stock Exchange, offering a view into Germany’s economy and a broader perspective on the European market.
+6. Nikkei 225 (^N225):
+A Japanese stock market index, representing 225 large companies listed on the Tokyo Stock Exchange. It's a good indicator for the Asian market.
+7. Hang Seng Index (^HSI):
+Represents the largest companies listed on the Hong Kong Stock Exchange, reflecting economic conditions in China and Hong Kong.
+8. Euro Stoxx 50 (^STOXX50E):
+Tracks the 50 largest blue-chip companies in the Eurozone, providing insight into European markets.
+9. Shanghai Composite Index (000001.SS):
+A comprehensive index of all stocks listed on the Shanghai Stock Exchange, useful for insights into China’s economy.
+'''
+
+####Basic Indicators####
+'''
+1. Moving Average Convergence Divergence (MACD):
+Purpose: Identifies changes in momentum by comparing two moving averages (typically 12-day and 26-day EMAs).
+Interpretation: A bullish signal occurs when the MACD line crosses above the signal line, and a bearish signal when it crosses below.
+
+2. Bollinger Bands:
+Purpose: Measures volatility by creating upper and lower bands around a moving average (typically 20 periods).
+Interpretation: If the price moves toward the upper band, it may be overbought, and if it moves toward the lower band, it may be oversold.
+
+3. Average True Range (ATR):
+Purpose: Measures market volatility by analyzing the range of price movements.
+Interpretation: A higher ATR suggests increased volatility, while a lower ATR indicates a calmer market.
+
+4. Stochastic Oscillator:
+Purpose: Compares a stock's closing price to its price range over a certain period.
+Interpretation: A reading above 80 may indicate an overbought condition, while below 20 suggests oversold conditions.
+
+5. On-Balance Volume (OBV):
+Purpose: Measures buying and selling pressure using volume.
+Interpretation: Rising OBV indicates that volume is flowing into the asset (bullish), while falling OBV suggests selling pressure.
+
+6. Relative Strength Index (RSI) (which you're already using):
+Purpose: Measures the speed and change of price movements, helping identify overbought and oversold conditions.
+
+7. Chaikin Money Flow (CMF):
+Purpose: Combines price and volume to show the strength of accumulation or distribution.
+Interpretation: A value above zero suggests buying pressure, and below zero suggests selling pressure.
+
+8. Exponential Moving Average (EMA):
+Purpose: Similar to SMA but gives more weight to recent prices, making it more responsive.
+Code Example:
+
+9. Accumulation/Distribution Line (A/D Line):
+Purpose: Combines price and volume to estimate whether the asset is being accumulated or distributed.
+Code Example:
+'''
+#########################################################################
+
+
+# Function to calculate and add technical indicators
+def calculate_indicators(data):
+    if 'Close' not in data.columns or data.empty:
+        return data
+
+    # Ensure enough data for calculations
+    if len(data) < 200:
+        print("Not enough data to calculate indicators.")
+        return data
+
+    try:
+        # Calculate SMA
+        data['SMA50'] = ta.sma(data['Close'], length=50)
+        data['SMA200'] = ta.sma(data['Close'], length=200)
+
+        data['EMA20'] = ta.ema(data['Close'], length=20)
+
+        # Calculate RSI
+        data['RSI'] = ta.rsi(data['Close'], length=14)
+
+        # Calculate MACD
+        macd_result = ta.macd(data['Close'])
+        data['MACD'] = macd_result['MACD_12_26_9']
+        data['MACD_signal'] = macd_result['MACDs_12_26_9']
+        data['MACD_histogram'] = macd_result['MACDh_12_26_9']
+
+        # Calculate Bollinger Bands
+        bb_result = ta.bbands(data['Close'], length=5, std=2.0)
+        data['BB_lower'] = bb_result['BBL_5_2.0']
+        data['BB_middle'] = bb_result['BBM_5_2.0']
+        data['BB_upper'] = bb_result['BBU_5_2.0']
+
+        # Calculate ATR
+        if 'High' in data.columns and 'Low' in data.columns:
+            data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
+
+        # Calculate Stochastic Oscillator
+        stoch_result = ta.stoch(data['High'], data['Low'], data['Close'])
+        data['Stoch_K'] = stoch_result[0]
+        data['Stoch_D'] = stoch_result[1]
+
+        # Calculate OBV
+        if 'Volume' in data.columns:
+            data['OBV'] = ta.obv(data['Close'], data['Volume'])
+
+        # Calculate CMF
+        if 'Volume' in data.columns:
+            data['CMF'] = ta.cmf(data['High'], data['Low'], data['Close'], data['Volume'])
+
+    except Exception as e:
+        print(f"Error in calculating indicators: {e}")
+
+    return data
+
+# Function to plot data with all technical indicators and buy/sell signals for the primary index
+def plot_primary_index(symbol, data):
+    fig = go.Figure()
+
+    # Plot Close Price and Moving Averages
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close'], mode='lines', name=f'{symbol} Close Price', line=dict(color='cyan', width=2)))
+    fig.add_trace(go.Scatter(x=data.index, y=data['SMA50'], mode='lines', name='50-Day SMA', line=dict(color='magenta', width=1.5)))
+    fig.add_trace(go.Scatter(x=data.index, y=data['SMA200'], mode='lines', name='200-Day SMA', line=dict(color='yellow', width=1.5)))
+
+    # Plot Bollinger Bands
+    if 'BB_upper' in data.columns and data['BB_upper'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_upper'], mode='lines', name='Bollinger Upper Band', line=dict(color='red', width=1, dash='dash')))
+    if 'BB_middle' in data.columns and data['BB_middle'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_middle'], mode='lines', name='Bollinger Middle Band', line=dict(color='orange', width=1, dash='dash')))
+    if 'BB_lower' in data.columns and data['BB_lower'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['BB_lower'], mode='lines', name='Bollinger Lower Band', line=dict(color='green', width=1, dash='dash')))
+
+    # Plot MACD
+    if 'MACD' in data.columns and data['MACD'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['MACD'], mode='lines', name='MACD', line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=data.index, y=data['MACD_signal'], mode='lines', name='MACD Signal', line=dict(color='orange')))
+        fig.add_trace(go.Bar(x=data.index, y=data['MACD_histogram'], name='MACD Histogram', marker_color='gray'))
+
+    # Plot RSI
+    if 'RSI' in data.columns and data['RSI'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], mode='lines', name='RSI', line=dict(color='purple')))
+        fig.add_trace(go.Scatter(x=data.index, y=[30]*len(data.index), mode='lines', name='Oversold', line=dict(color='green', dash='dash')))
+        fig.add_trace(go.Scatter(x=data.index, y=[70]*len(data.index), mode='lines', name='Overbought', line=dict(color='red', dash='dash')))
+
+    # Plot Stochastic Oscillator
+    if 'Stoch_K' in data.columns and data['Stoch_K'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['Stoch_K'], mode='lines', name='Stochastic %K', line=dict(color='blue')))
+    if 'Stoch_D' in data.columns and data['Stoch_D'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['Stoch_D'], mode='lines', name='Stochastic %D', line=dict(color='orange')))
+
+    # Plot OBV
+    if 'OBV' in data.columns and data['OBV'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['OBV'], mode='lines', name='OBV', line=dict(color='green')))
+
+    # Plot CMF
+    if 'CMF' in data.columns and data['CMF'].notna().any():
+        fig.add_trace(go.Scatter(x=data.index, y=data['CMF'], mode='lines', name='CMF', line=dict(color='red')))
+
+    # Update layout
+    fig.update_layout(
+        title=f'{symbol} Technical Indicators',
+        xaxis_title='Date',
+        yaxis_title='Value',
+        template='plotly_dark',
+        hovermode='x unified',
+        showlegend=True
+    )
+
+    fig.show()
+
+# Function to plot supporting indices
+def plot_supporting_indices(indices):
+    fig = go.Figure()
+    
+    for symbol in indices:
+        data = yf.download(symbol, start='2020-01-01', end='2024-09-01')
+        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], mode='lines', name=f'{symbol} Close Price'))
+
+    fig.update_layout(
+        title='Supporting Indices',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        template='plotly_dark',
+        hovermode='x unified',
+        showlegend=True
+    )
+
+    fig.show()
+
+# Function to make a buy/sell/hold decision (example implementation)
+def make_decision(data):
+    score = 0
+
+    # Bollinger Bands
+    if data['Close'].iloc[-1] > data['BB_upper'].iloc[-1]:
+        score -= 1
+    elif data['Close'].iloc[-1] < data['BB_lower'].iloc[-1]:
+        score += 1
+
+    # RSI
+    if 'RSI' in data.columns:
+        rsi_value = data['RSI'].iloc[-1]
+        if rsi_value > 70:
+            score -= 1
+        elif rsi_value < 30:
+            score += 1
+
+    # MACD
+    if 'MACD' in data.columns and 'MACD_signal' in data.columns:
+        macd_value = data['MACD'].iloc[-1]
+        macd_signal_value = data['MACD_signal'].iloc[-1]
+        if macd_value > macd_signal_value:
+            score += 1
+        elif macd_value < macd_signal_value:
+            score -= 1
+
+    # Stochastic Oscillator
+    if 'Stoch_K' in data.columns and 'Stoch_D' in data.columns:
+        stoch_k_value = data['Stoch_K'].iloc[-1]
+        stoch_d_value = data['Stoch_D'].iloc[-1]
+        if stoch_k_value < 20 and stoch_k_value > stoch_d_value:
+            score += 1
+        elif stoch_k_value > 80 and stoch_k_value < stoch_d_value:
+            score -= 1
+
+    # EMA
+    if 'EMA20' in data.columns:
+        ema20_value = data['EMA20'].iloc[-1]
+        if data['Close'].iloc[-1] > ema20_value:
+            score += 1
+        elif data['Close'].iloc[-1] < ema20_value:
+            score -= 1
+
+    # Decision based on score
+    if score > 2:
+        return 'Buy'
+    elif score < -2:
+        return 'Sell'
+    else:
+        return 'Hold'
+
+# Main function to analyze an index and plot supporting indices
+def analyze_index(symbol, supporting_indices):
+    # Download historical data for the primary index
+    data = yf.download(symbol, start='2020-01-01', end='2024-09-01')
+    
+    # Calculate indicators
+    data = calculate_indicators(data)
+    
+    # Plot primary index with indicators
+    plot_primary_index(symbol, data)
+    
+    # Plot supporting indices
+    plot_supporting_indices(supporting_indices)
+    
+    # Make a buy/sell/hold decision
+    decision = make_decision(data)
+    print(f"Decision for {symbol}: {decision}")
+
+# Example usage
+primary_index = '^GSPC'  # Example: S&P 500
+analyze_index(primary_index, supporting_indices)
