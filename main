@@ -97,7 +97,7 @@ def calculate_indicators(data):
         data['SMA200'] = ta.sma(data['Close'], length=200)
 
         data['EMA20'] = ta.ema(data['Close'], length=20)
-
+        
         # Calculate RSI
         data['RSI'] = ta.rsi(data['Close'], length=14)
 
@@ -141,16 +141,19 @@ def plot_primary_index(symbol, data):
 
     # Plot Close Price and Moving Averages
     fig.add_trace(go.Scatter(x=data.index, y=data['Close'], mode='lines', name=f'{symbol} Close Price', line=dict(color='cyan', width=2)))
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA50'], mode='lines', name='50-Day SMA', line=dict(color='magenta', width=1.5)))
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA200'], mode='lines', name='200-Day SMA', line=dict(color='yellow', width=1.5)))
+    if 'SMA50' in data.columns:
+      fig.add_trace(go.Scatter(x=data.index, y=data['SMA50'], mode='lines', name='50-Day SMA', line=dict(color='magenta', width=1.5)))
+    if 'SMA200' in data.columns:
+      fig.add_trace(go.Scatter(x=data.index, y=data['SMA200'], mode='lines', name='200-Day SMA', line=dict(color='yellow', width=1.5)))
 
     # Plot Bollinger Bands
-    if 'BB_upper' in data.columns and data['BB_upper'].notna().any():
-        fig.add_trace(go.Scatter(x=data.index, y=data['BB_upper'], mode='lines', name='Bollinger Upper Band', line=dict(color='red', width=1, dash='dash')))
-    if 'BB_middle' in data.columns and data['BB_middle'].notna().any():
-        fig.add_trace(go.Scatter(x=data.index, y=data['BB_middle'], mode='lines', name='Bollinger Middle Band', line=dict(color='orange', width=1, dash='dash')))
-    if 'BB_lower' in data.columns and data['BB_lower'].notna().any():
-        fig.add_trace(go.Scatter(x=data.index, y=data['BB_lower'], mode='lines', name='Bollinger Lower Band', line=dict(color='green', width=1, dash='dash')))
+    if 'BB_upper' in data.columns:
+      fig.add_trace(go.Scatter(x=data.index, y=data['BB_upper'], mode='lines', name='Bollinger Upper Band', line=dict(color='red', width=1, dash='dash')))
+    if 'BB_middle' in data.columns:
+      fig.add_trace(go.Scatter(x=data.index, y=data['BB_middle'], mode='lines', name='Bollinger Middle Band', line=dict(color='orange', width=1, dash='dash')))
+    if 'BB_lower' in data.columns:
+      fig.add_trace(go.Scatter(x=data.index, y=data['BB_lower'], mode='lines', name='Bollinger Lower Band', line=dict(color='green', width=1, dash='dash')))
+
 
     # Plot MACD
     if 'MACD' in data.columns and data['MACD'].notna().any():
@@ -211,72 +214,78 @@ def plot_supporting_indices(indices):
 
 # Function to make a buy/sell/hold decision (example implementation)
 def make_decision(data):
-    score = 0
+    # Initialize decision
+    decision = 'Hold'
 
-    # Bollinger Bands
+    # Bollinger Bands decision
     if data['Close'].iloc[-1] > data['BB_upper'].iloc[-1]:
-        score -= 1
+        decision = 'Sell '
     elif data['Close'].iloc[-1] < data['BB_lower'].iloc[-1]:
-        score += 1
+        decision = 'Buy'
 
-    # RSI
+    # RSI decision
     if 'RSI' in data.columns:
         rsi_value = data['RSI'].iloc[-1]
         if rsi_value > 70:
-            score -= 1
+            decision = 'Sell' if decision == 'Hold' else decision
         elif rsi_value < 30:
-            score += 1
+            decision = 'Buy' if decision == 'Hold' else decision
 
-    # MACD
+    # MACD decision
     if 'MACD' in data.columns and 'MACD_signal' in data.columns:
         macd_value = data['MACD'].iloc[-1]
         macd_signal_value = data['MACD_signal'].iloc[-1]
         if macd_value > macd_signal_value:
-            score += 1
+            decision = 'Buy' if decision == 'Hold' else decision
         elif macd_value < macd_signal_value:
-            score -= 1
+            decision = 'Sell' if decision == 'Hold' else decision
 
-    # Stochastic Oscillator
+    # Stochastic Oscillator decision
     if 'Stoch_K' in data.columns and 'Stoch_D' in data.columns:
         stoch_k_value = data['Stoch_K'].iloc[-1]
         stoch_d_value = data['Stoch_D'].iloc[-1]
-        if stoch_k_value < 20 and stoch_k_value > stoch_d_value:
-            score += 1
-        elif stoch_k_value > 80 and stoch_k_value < stoch_d_value:
-            score -= 1
+        if stoch_k_value > 80 and stoch_k_value < stoch_d_value:
+            decision = 'Sell' if decision == 'Hold' else decision
+        elif stoch_k_value < 20 and stoch_k_value > stoch_d_value:
+            decision = 'Buy' if decision == 'Hold' else decision
 
-    # EMA
+    # EMA decision (using a simple 20-day EMA)
     if 'EMA20' in data.columns:
         ema20_value = data['EMA20'].iloc[-1]
         if data['Close'].iloc[-1] > ema20_value:
-            score += 1
+            decision = 'Buy' if decision == 'Hold' else decision
         elif data['Close'].iloc[-1] < ema20_value:
-            score -= 1
+            decision = 'Sell' if decision == 'Hold' else decision
 
-    # Decision based on score
-    if score > 2:
-        return 'Buy'
-    elif score < -2:
-        return 'Sell'
-    else:
-        return 'Hold'
+    return decision
 
 # Main function to analyze an index and plot supporting indices
 def analyze_index(symbol, supporting_indices):
-    # Download historical data for the primary index
-    data = yf.download(symbol, start='2020-01-01', end='2024-09-01')
+    # Download historical data for 1-day period with 1-minute interval
+    print(f"Analyzing {symbol} with period='1d' and interval='1h'")
+    data_intraday = yf.download(tickers=symbol, period='1d', interval='1h')
     
-    # Calculate indicators
-    data = calculate_indicators(data)
+    # Calculate indicators for intraday data
+    data_intraday = calculate_indicators(data_intraday)
     
-    # Plot primary index with indicators
-    plot_primary_index(symbol, data)
+    # Plot primary index with indicators for intraday data
+    plot_primary_index(symbol, data_intraday)
     
-    # Plot supporting indices
+    # Download historical data for 1-year period with 1-day interval
+    print(f"Analyzing {symbol} with period='1y' and interval='1d'")
+    data_daily = yf.download(tickers=symbol, period='1y', interval='1d')
+    
+    # Calculate indicators for daily data
+    data_daily = calculate_indicators(data_daily)
+    
+    # Plot primary index with indicators for daily data
+    plot_primary_index(symbol, data_daily)
+    
+    # Plot supporting indices (for reference over 1-year daily data)
     plot_supporting_indices(supporting_indices)
     
-    # Make a buy/sell/hold decision
-    decision = make_decision(data)
+    # Make a buy/sell/hold decision based on daily data
+    decision = make_decision(data_daily)
     print(f"Decision for {symbol}: {decision}")
 
 # Example usage
